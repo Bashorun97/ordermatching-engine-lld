@@ -1,4 +1,3 @@
-// main.ts
 import express from 'express';
 import { Request, Response } from 'express';
 
@@ -38,36 +37,47 @@ for (const ticker of tickers) {
 
 app.post('/order/:ticker', (req, res) => {
   const { ticker } = req.params;
+  // console.log('Received order:', req.body);
   const worker = workers.get(ticker);
-  if (!worker) return res.status(404).send('Ticker not found');
+  if (!worker) {
+    res.status(404).send('Ticker not found');
+    return;
+  }
+
+  const id = generateMessageId(ticker);
+  responseHandlers.set(id, (data) => res.json(data));
+  const { orderId } = req.body;
+
+  worker.postMessage({ type: 'placeOrder', id, orderId, order: req.body });
+});
+
+app.post('/cancel/:ticker/:orderId', (req: Request, res: Response) => {
+  const { ticker, orderId } = req.params;
+  const worker = workers.get(ticker);
+  if (!worker) {
+    res.status(404).send('Ticker not found');
+    return;
+  }
 
   const id = generateMessageId(ticker);
   responseHandlers.set(id, (data) => res.json(data));
 
-  worker.postMessage({ type: 'placeOrder', id, order: req.body });
+  worker.postMessage({ type: 'cancelOrder', id, orderId });
 });
 
-// app.post('/cancel/:ticker/:orderId', (req: Request, res: Response) => {
-//   const { ticker, orderId } = req.params;
-//   const worker = workers.get(ticker);
-//   if (!worker) return res.status(404).send('Ticker not found');
+app.get('/orderbook/:ticker', (req: Request, res: Response) => {
+  const { ticker } = req.params;
+  const worker = workers.get(ticker);
+  if (!worker) {
+    res.status(404).send('Ticker not found');
+    return;
+  }
 
-//   const id = generateMessageId(ticker);
-//   responseHandlers.set(id, (data) => res.json(data));
+  const id = generateMessageId(ticker);
+  responseHandlers.set(id, (data) => res.json(data));
 
-//   worker.postMessage({ type: 'cancelOrder', id, orderId });
-// });
-
-// app.get('/orderbook/:ticker', (req: Request<{ ticker: string }>, res: Response) => {
-//   const { ticker } = req.params;
-//   const worker = workers.get(ticker);
-//   if (!worker) return res.status(404).send('Ticker not found');
-
-//   const id = generateMessageId(ticker);
-//   responseHandlers.set(id, (data) => res.json(data));
-
-//   worker.postMessage({ type: 'getOrderBook', id });
-// });
+  worker.postMessage({ type: 'getOrderBook', id });
+});
 
 app.listen(port, () => {
   console.log(`API running on http://localhost:${port}`);

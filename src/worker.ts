@@ -5,7 +5,7 @@ const { ticker } = workerData;
 
 const MIN_PRICE = 90.0;
 const MAX_PRICE = 110.0;
-const TICK_SIZE = 0.01;
+const TICK_SIZE = 10;
 const PRICE_LEVELS = Math.round((MAX_PRICE - MIN_PRICE) / TICK_SIZE) + 1;
 
 function priceToIndex(price: number): number {
@@ -19,7 +19,7 @@ function indexToPrice(index: number): number {
 type Side = 'buy' | 'sell';
 
 interface Order {
-  id: string;
+  orderId: string;
   price: number;
   quantity: number;
   timestamp: number;
@@ -38,19 +38,25 @@ class OrderBookSide {
   }
 
   insert(order: Order) {
+    console.log('Inserting order:', order);
     const idx = priceToIndex(order.price);
     this.levels[idx].push(order);
-    this.orderMap.set(order.id, { index: idx, order });
+    this.orderMap.set(order.orderId, { index: idx, order });
+    console.log('OrderMap after insert:', [...this.orderMap.keys()]);
     this.totalVolume += order.quantity;
+    console.log('Total volume after insert:', this.totalVolume);
   }
 
   cancel(orderId: string): boolean {
+    console.log('Cancelling order:', orderId, this.orderMap);
     const entry = this.orderMap.get(orderId);
+    console.log("Entry", entry);
     if (!entry) return false;
 
+    
     const { index, order } = entry;
     const level = this.levels[index];
-    const i = level.findIndex(o => o.id === orderId);
+    const i = level.findIndex(o => o.orderId === orderId);
     if (i !== -1) {
       this.totalVolume -= level[i].quantity;
       level.splice(i, 1);
@@ -76,7 +82,7 @@ class OrderBookSide {
         askBook.totalVolume -= fillQty;
 
         if (ask.quantity === 0) {
-          askBook.orderMap.delete(ask.id);
+          askBook.orderMap.delete(ask.orderId);
           level.shift();
         }
       }
@@ -102,7 +108,7 @@ class OrderBookSide {
         bidBook.totalVolume -= fillQty;
 
         if (bid.quantity === 0) {
-          bidBook.orderMap.delete(bid.id);
+          bidBook.orderMap.delete(bid.orderId);
           level.shift();
         }
       }
@@ -122,24 +128,25 @@ const bidBook = new OrderBookSide('buy');
 const askBook = new OrderBookSide('sell');
 
 parentPort!.on('message', (msg) => {
-  const { type, id, orderId, order } = msg;
+  const { type, workerId, orderId, order } = msg;
 
   if (type === 'getOrderBook') {
     const snapshot = {
       bids: bidBook.getSnapshot(),
       asks: askBook.getSnapshot()
     };
-    parentPort!.postMessage({ id, data: snapshot });
+    parentPort!.postMessage({ workerId, data: snapshot });
   } else if (type === 'placeOrder') {
     let fills: Order[] = [];
     if (order.side === 'buy') {
       fills = bidBook.matchLimitBuy(order, askBook);
     } else {
+        console.log('Matching limit sell', order);
       fills = askBook.matchLimitSell(order, bidBook);
     }
-    parentPort!.postMessage({ id, data: { fills } });
+    parentPort!.postMessage({ workerId, data: { fills } });
   } else if (type === 'cancelOrder') {
     const cancelled = bidBook.cancel(orderId) || askBook.cancel(orderId);
-    parentPort!.postMessage({ id, data: { cancelled } });
+    parentPort!.postMessage({ workerId, data: { cancelled } });
   }
 });
